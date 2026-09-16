@@ -1,0 +1,70 @@
+name: Hourly Screenshots
+ 
+on:
+  schedule:
+    - cron: '0 * * * *'   # every hour, on the hour (UTC)
+  workflow_dispatch: {}    # lets you trigger it manually from the Actions tab
+ 
+permissions:
+  contents: write
+ 
+jobs:
+  screenshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+ 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+ 
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install playwright
+          npx playwright install --with-deps chromium
+ 
+      - name: Take screenshots
+        run: |
+          cat << 'EOF' > shot.js
+          const { chromium } = require('playwright');
+ 
+          const sites = [
+            { name: 'boxofficemojo', url: 'https://www.boxofficemojo.com' },
+            { name: 'the-numbers', url: 'https://www.the-numbers.com' },
+          ];
+ 
+          (async () => {
+            const browser = await chromium.launch();
+            const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+ 
+            const now = new Date();
+            const stamp = now.toISOString().replace(/:/g, '-').split('.')[0];
+ 
+            for (const site of sites) {
+              const dir = `screenshots/${site.name}`;
+              require('fs').mkdirSync(dir, { recursive: true });
+              try {
+                await page.goto(site.url, { waitUntil: 'networkidle', timeout: 30000 });
+                await page.screenshot({ path: `${dir}/${stamp}.png`, fullPage: true });
+                console.log(`Captured ${site.name}`);
+              } catch (err) {
+                console.error(`Failed to capture ${site.name}:`, err.message);
+              }
+            }
+ 
+            await browser.close();
+          })();
+          EOF
+          node shot.js
+ 
+      - name: Commit and push screenshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add screenshots/
+          git diff --quiet --cached || git commit -m "Hourly screenshots: $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push
+ 
